@@ -443,7 +443,7 @@ MonoBehaviour:
   - 3
   - 4
   - 5
-  numberOfLetters: 5
+  numberOfLetters: 2
   specialLetterColorHex: '#FF0000'
 --- !u!114 &585814840
 MonoBehaviour:
