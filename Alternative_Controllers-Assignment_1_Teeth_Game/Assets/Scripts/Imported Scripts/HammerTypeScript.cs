@@ -12,10 +12,10 @@ public class HammerTypeScript : MonoBehaviour
     public IconSelectorScript iconSelectorScript;
 
     // Reference to the ScoreSequenceManager to update the score
-    public ScoreSequenceManager scoreSequenceManager;
+    //public ScoreSequenceManager scoreSequenceManager;
 
     // Pool of letters the player is allowed to type
-    public string[] allowedLetterPool = { "A", "Z", "X", "D", "F", "V", "B", "H" };
+    public string[] allowedLetterPool = { "1", "2", "3", "4", "5"};
 
     // String to store the player's typed characters
     private string typedLetters = "";
@@ -47,7 +47,7 @@ public class HammerTypeScript : MonoBehaviour
                     if (typedLetters.Length == iconSelectorScript.GetSelectedLetters().Length)
                     {
                         // Increase the score in ScoreSequenceManager
-                        scoreSequenceManager.IncreaseScore();
+                        //scoreSequenceManager.IncreaseScore();
 
                         // Clear the typed letters for the next round
                         typedLetters = "";
