@@ -1,29 +1,32 @@
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
+using UnityEngine.SceneManagement;
 
 public class Timer : MonoBehaviour
 {
     [Header("Countdown Timer Settings")]
     [SerializeField] private float maxTime = 30f;
-    [SerializeField] private Image fillImage;          // UI Image with Fill Method = Radial or Horizontal
-    [SerializeField] private TMP_Text countdownText;   // TextMeshProUGUI for countdown display
+    [SerializeField] private Image fillImage;
+    [SerializeField] private TMP_Text countdownText;
 
     [Header("Game Time Display")]
-    [SerializeField] private TMP_Text totalTimeText;   // TextMeshProUGUI showing elapsed time (00:00 format)
-    [SerializeField] private TMP_Text bestTimeText;    // TextMeshProUGUI for displaying best time
+    [SerializeField] private TMP_Text totalTimeText;
+    [SerializeField] private TMP_Text bestTimeText;
 
     [Header("Teeth References")]
-    [Tooltip("Assign all IndividualTooth objects in the scene.")]
     [SerializeField] private IndividualTooth[] teeth;
 
     [Header("Decay Settings")]
-    [Tooltip("Base speed multiplier when one tooth is dirty.")]
     [SerializeField] private float baseDecayRate = 1f;
-    [Tooltip("Multiplier applied per dirty tooth (more dirty teeth = faster decay).")]
     [SerializeField] private float perDirtyMultiplier = 0.5f;
-    [Tooltip("Minimum speed multiplier when all teeth are clean.")]
     [SerializeField] private float cleanDecayMultiplier = 0.1f;
+
+    [Header("Scene Settings")]
+    [SerializeField] private string nextSceneName; // Scene to load when timer ends
+
+    [Header("Hotkeys")]
+    [SerializeField] private KeyCode resetBestTimeKey = KeyCode.R;
 
     private float countdownTime;
     private float totalElapsedTime;
@@ -31,24 +34,25 @@ public class Timer : MonoBehaviour
     private bool bestTimeChecked = false;
 
     private const string BEST_TIME_KEY = "BestTime";
+    private const string FINAL_TIME_KEY = "FinalTime";
 
     void Start()
     {
         countdownTime = maxTime;
         totalElapsedTime = 0f;
 
-        if (PlayerPrefs.HasKey(BEST_TIME_KEY))
-            bestTimeText.text = FormatTime(PlayerPrefs.GetFloat(BEST_TIME_KEY));
-        else
-            bestTimeText.text = "00:00";
-
+        UpdateBestTimeUI();
         UpdateCountdownUI();
         UpdateTotalTimeUI();
     }
 
     void Update()
     {
-        // --- Countdown Timer ---
+        // Reset best time hotkey
+        if (Input.GetKeyDown(resetBestTimeKey))
+            ResetBestTime();
+
+        // Countdown timer
         if (countdownActive)
         {
             float decayRate = CalculateDecayRate();
@@ -60,32 +64,23 @@ public class Timer : MonoBehaviour
             {
                 countdownActive = false;
                 RecordBestTime();
+                SaveFinalTimesAndLoadScene();
             }
         }
 
-        // --- Total Game Time ---
+        // Total elapsed time
         totalElapsedTime += Time.deltaTime;
         UpdateTotalTimeUI();
     }
 
     private float CalculateDecayRate()
     {
-        if (teeth == null || teeth.Length == 0)
-            return baseDecayRate; // fallback if not set
-
         int dirtyCount = 0;
         foreach (var tooth in teeth)
-        {
             if (tooth != null && tooth.GetCurrentStateIndex() != 0)
                 dirtyCount++;
-        }
 
-        // If all teeth are clean, timer slows down drastically
-        if (dirtyCount == 0)
-            return baseDecayRate * cleanDecayMultiplier;
-
-        // Otherwise, increase decay rate based on how many are dirty
-        return baseDecayRate + (dirtyCount * perDirtyMultiplier);
+        return dirtyCount == 0 ? baseDecayRate * cleanDecayMultiplier : baseDecayRate + (dirtyCount * perDirtyMultiplier);
     }
 
     private void UpdateCountdownUI()
@@ -99,8 +94,17 @@ public class Timer : MonoBehaviour
 
     private void UpdateTotalTimeUI()
     {
-        if (!totalTimeText) return;
-        totalTimeText.text = FormatTime(totalElapsedTime);
+        if (totalTimeText)
+            totalTimeText.text = FormatTime(totalElapsedTime);
+    }
+
+    private void UpdateBestTimeUI()
+    {
+        if (bestTimeText)
+        {
+            float bestTime = PlayerPrefs.GetFloat(BEST_TIME_KEY, 0f);
+            bestTimeText.text = bestTime > 0 ? FormatTime(bestTime) : "00:00";
+        }
     }
 
     private string FormatTime(float time)
@@ -108,6 +112,38 @@ public class Timer : MonoBehaviour
         int minutes = Mathf.FloorToInt(time / 60f);
         int seconds = Mathf.FloorToInt(time % 60f);
         return $"{minutes:00}:{seconds:00}";
+    }
+
+    private void RecordBestTime()
+    {
+        if (bestTimeChecked) return;
+        bestTimeChecked = true;
+
+        float bestTime = PlayerPrefs.GetFloat(BEST_TIME_KEY, 0f);
+        if (totalElapsedTime > bestTime)
+        {
+            PlayerPrefs.SetFloat(BEST_TIME_KEY, totalElapsedTime);
+            PlayerPrefs.Save();
+            UpdateBestTimeUI();
+        }
+    }
+
+    private void SaveFinalTimesAndLoadScene()
+    {
+        PlayerPrefs.SetFloat(FINAL_TIME_KEY, totalElapsedTime);
+        PlayerPrefs.SetFloat(BEST_TIME_KEY, PlayerPrefs.GetFloat(BEST_TIME_KEY, 0f));
+        PlayerPrefs.Save();
+
+        if (!string.IsNullOrEmpty(nextSceneName))
+            SceneManager.LoadScene(nextSceneName);
+    }
+
+    private void ResetBestTime()
+    {
+        PlayerPrefs.DeleteKey(BEST_TIME_KEY);
+        PlayerPrefs.Save();
+        UpdateBestTimeUI();
+        Debug.Log("Best time reset!");
     }
 
     public void RestoreCountdown()
@@ -124,18 +160,6 @@ public class Timer : MonoBehaviour
         UpdateCountdownUI();
     }
 
-    private void RecordBestTime()
-    {
-        if (bestTimeChecked) return;
-        bestTimeChecked = true;
-
-        float bestTime = PlayerPrefs.GetFloat(BEST_TIME_KEY, 0f);
-        if (totalElapsedTime > bestTime)
-        {
-            PlayerPrefs.SetFloat(BEST_TIME_KEY, totalElapsedTime);
-            PlayerPrefs.Save();
-            if (bestTimeText)
-                bestTimeText.text = FormatTime(totalElapsedTime);
-        }
-    }
+    public float GetFinalTime() => totalElapsedTime;
+    public float GetBestTime() => PlayerPrefs.GetFloat(BEST_TIME_KEY, 0f);
 }
