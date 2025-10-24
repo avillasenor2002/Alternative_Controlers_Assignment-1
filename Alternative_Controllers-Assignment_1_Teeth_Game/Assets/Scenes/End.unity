@@ -332,7 +332,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c258a5c5d442da649952113db13d69a7, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  sceneName: Andrew
+  sceneName: Start
   activationKey: 32
 --- !u!4 &671533634
 Transform:
