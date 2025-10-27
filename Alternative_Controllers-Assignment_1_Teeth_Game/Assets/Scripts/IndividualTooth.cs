@@ -1,4 +1,4 @@
-using UnityEngine;
+锘縰sing UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.Playables;
 using UnityEngine.Animations;
@@ -8,11 +8,11 @@ public class ToothState
 {
     [Header("Fill ONE of them (Clip has priority)")]
     public string name;
-    public Sprite sprite;                  // 静态图
-    public AnimationClip clip;             // 单个动画（用 Playables 播放；无需 Legacy/Controller）
-    [Tooltip("仅当 clip 有效：是否循环")]
+    public Sprite sprite;
+    public AnimationClip clip;
+    [Tooltip("Only when clip is set: should it loop?")]
     public bool clipLoops = true;
-    [Tooltip("仅当 clip 有效：播放速度")]
+    [Tooltip("Only when clip is set: playback speed")]
     public float clipSpeed = 1f;
 }
 
@@ -47,26 +47,23 @@ public class IndividualTooth : MonoBehaviour
     public Image hammerFillUI;
 
     [Header("Sprite/Visuals")]
-    [SerializeField] private SpriteRenderer spriteRenderer; // 如不指定，将自动获取
+    [SerializeField] private SpriteRenderer spriteRenderer;
 
-    // ========= 单 Clip 播放（不需要 Animator Controller）=========
     [Header("Animation Runtime (auto)")]
-    [SerializeField] private Animator animForOutput; // 仅作为 Playables 输出目标；自动补
+    [SerializeField] private Animator animForOutput;
     private PlayableGraph graph;
     private AnimationClipPlayable playable;
     private bool graphValid = false;
 
-    // ========= Audio（出现/清理 + 操作音，可选） =========
     [Header("Audio (optional)")]
-    [SerializeField] private AudioSource sfxSource;      // 建议 2D AudioSource
-    [SerializeField] private AudioClip appearClip;       // 0 -> 非0：出现不良状态
-    [SerializeField] private AudioClip cleanClip;        // 非0 -> 0：清理成功
-    [SerializeField] private AudioClip drillStartClip;   // 钻头开始长按
-    [SerializeField] private AudioClip drillEndClip;     // 钻头长按中断/完成
-    [SerializeField] private AudioClip brushTapClip;     // 牙刷每次有效连点
-    [SerializeField] private AudioClip hammerHitClip;    // 锤子命中
+    [SerializeField] private AudioSource sfxSource;
+    [SerializeField] private AudioClip appearClip;
+    [SerializeField] private AudioClip cleanClip;
+    [SerializeField] private AudioClip drillStartClip;
+    [SerializeField] private AudioClip drillEndClip;
+    [SerializeField] private AudioClip brushTapClip;
+    [SerializeField] private AudioClip hammerHitClip;
     [Range(0f, 1f)][SerializeField] private float sfxVolume = 1f;
-    [Tooltip("为避免听感机械，给音高轻微随机")]
     [Range(0.5f, 1.5f)][SerializeField] private float pitchMin = 0.95f;
     [Range(0.5f, 1.5f)][SerializeField] private float pitchMax = 1.05f;
 
@@ -87,11 +84,13 @@ public class IndividualTooth : MonoBehaviour
     private static GameObject activeTool = null;
     private static IndividualTooth activeTooth = null;
 
-    // Wobble（锤子状态时轻微摆动）
+    // 馃敼 NEW: Input lock to ensure only one arrow key action at a time
+    private static KeyCode? activeArrowKey = null;
+
+    // Wobble
     [SerializeField] private float wobbleSpeed = 10f;
     [SerializeField] private float wobbleAmount = 0.05f;
 
-    // ===================== Unity Lifecycle =====================
     private void Awake()
     {
         if (!spriteRenderer) spriteRenderer = GetComponent<SpriteRenderer>();
@@ -100,12 +99,10 @@ public class IndividualTooth : MonoBehaviour
 
         ApplySelectedState(true);
 
-        // 工具全部激活但移出屏幕
         if (drillTool) { drillTool.SetActive(true); MoveToolOffscreen(drillTool); }
         if (brushTool) { brushTool.SetActive(true); MoveToolOffscreen(brushTool); }
         if (hammerTool) { hammerTool.SetActive(true); MoveToolOffscreen(hammerTool); }
 
-        // 清零 UI
         UpdateToolFill(drillFillUI, 0f);
         UpdateToolFill(brushFillUI, 0f);
         UpdateToolFill(hammerFillUI, 0f);
@@ -116,28 +113,11 @@ public class IndividualTooth : MonoBehaviour
         if (!spriteRenderer) spriteRenderer = GetComponent<SpriteRenderer>();
         EnsureAnimOutput();
         EnsureAudioSource();
-        ApplySelectedState(); // 以防编辑器刷新后不显示
+        ApplySelectedState();
     }
 
     private void OnDisable() { DestroyGraph(); }
     private void OnDestroy() { DestroyGraph(); }
-
-#if UNITY_EDITOR
-    private void OnValidate()
-    {
-        if (!isActiveAndEnabled) return;
-        UnityEditor.EditorApplication.delayCall += () =>
-        {
-            if (this != null)
-            {
-                if (!spriteRenderer) spriteRenderer = GetComponent<SpriteRenderer>();
-                EnsureAnimOutput();
-                EnsureAudioSource();
-                ApplySelectedState();
-            }
-        };
-    }
-#endif
 
     private void Update()
     {
@@ -145,6 +125,15 @@ public class IndividualTooth : MonoBehaviour
         UpdateMashTimer();
         UpdateWobbleAnimation();
         KeepActiveToolInPlace();
+
+        // 馃敼 Clear arrow lock when no arrow is being held
+        if (activeArrowKey != null &&
+            !Input.GetKey(KeyCode.LeftArrow) &&
+            !Input.GetKey(KeyCode.RightArrow) &&
+            !Input.GetKey(KeyCode.DownArrow))
+        {
+            activeArrowKey = null;
+        }
     }
 
     // =================== INPUT HANDLING ===================
@@ -155,19 +144,25 @@ public class IndividualTooth : MonoBehaviour
 
         switch (selectedStateIndex)
         {
-            case 1: HandleDrillInput(); break;  // Drill: hold
-            case 2: HandleBrushInput(); break;  // Brush: mash
-            case 3: HandleHammerInput(); break; // Hammer: instant
+            case 1: HandleDrillInput(); break;
+            case 2: HandleBrushInput(); break;
+            case 3: HandleHammerInput(); break;
         }
     }
 
     // ---------------- DRILL ----------------
     private void HandleDrillInput()
     {
+        // 馃敼 Only accept input if no other arrow is locked or the same arrow is held
+        if (activeArrowKey != null && activeArrowKey != KeyCode.LeftArrow)
+            return;
+
         bool holding = Input.GetKey(KeyCode.LeftArrow) && Input.GetKey(associatedKey);
 
         if (holding)
         {
+            activeArrowKey ??= KeyCode.LeftArrow;
+
             if (!drillActive)
             {
                 drillActive = true;
@@ -190,7 +185,6 @@ public class IndividualTooth : MonoBehaviour
         }
         else if (drillActive && !holding)
         {
-            // 释放/中断
             PlayOneShot(drillEndClip);
             holdTimer = 0f;
             drillActive = false;
@@ -202,16 +196,20 @@ public class IndividualTooth : MonoBehaviour
     // ---------------- BRUSH ----------------
     private void HandleBrushInput()
     {
+        if (activeArrowKey != null && activeArrowKey != KeyCode.DownArrow)
+            return;
+
         bool pressing = Input.GetKey(KeyCode.DownArrow) && Input.GetKeyDown(associatedKey);
 
         if (pressing)
         {
+            activeArrowKey ??= KeyCode.DownArrow;
+
             SetActiveTool(brushTool);
             brushActive = true;
             mashCount++;
             mashTimer = mashResetTime;
 
-            // 每次有效点击给反馈音
             PlayOneShot(brushTapClip);
 
             float progress = Mathf.Clamp01((float)mashCount / mashGoal);
@@ -244,8 +242,13 @@ public class IndividualTooth : MonoBehaviour
     // ---------------- HAMMER ----------------
     private void HandleHammerInput()
     {
+        if (activeArrowKey != null && activeArrowKey != KeyCode.RightArrow)
+            return;
+
         if (Input.GetKey(KeyCode.RightArrow) && Input.GetKeyDown(associatedKey))
         {
+            activeArrowKey ??= KeyCode.RightArrow;
+
             SetActiveTool(hammerTool);
             UpdateToolFill(hammerFillUI, 1f);
             PlayOneShot(hammerHitClip);
@@ -265,7 +268,6 @@ public class IndividualTooth : MonoBehaviour
     {
         if (tool == null) return;
 
-        // 如果上一颗牙处于激活状态，先把其工具移出
         if (activeTooth != null && activeTooth != this)
             activeTooth.MoveToolOffscreen(activeTool);
 
@@ -303,7 +305,6 @@ public class IndividualTooth : MonoBehaviour
     // =================== VISUALS ===================
     private void UpdateWobbleAnimation()
     {
-        // 仅在 Hammer 状态（index==3）做轻微摆动
         if (selectedStateIndex == 3 && spriteRenderer != null)
         {
             float angle = Mathf.Sin(Time.time * wobbleSpeed) * wobbleAmount * 30f;
@@ -320,7 +321,6 @@ public class IndividualTooth : MonoBehaviour
     {
         if (selectedStateIndex == 0)
         {
-            // 已经是干净：仍然给一个清理音/粒子手感（可选）
             PlayOneShot(cleanClip);
             PlayCleanParticles();
             return;
@@ -329,12 +329,10 @@ public class IndividualTooth : MonoBehaviour
         selectedStateIndex = 0;
         ApplySelectedState();
 
-        // 清理完成音效 + 特效 + 加时
         PlayOneShot(cleanClip);
         PlayCleanParticles();
         AddBonusTime();
 
-        // 工具收尾
         MoveToolOffscreen(drillTool);
         MoveToolOffscreen(brushTool);
         MoveToolOffscreen(hammerTool);
@@ -351,7 +349,7 @@ public class IndividualTooth : MonoBehaviour
     private void EnsureAnimOutput()
     {
         animForOutput = GetComponent<Animator>();
-        if (!animForOutput) animForOutput = gameObject.AddComponent<Animator>(); // 仅做 Playables 输出目标
+        if (!animForOutput) animForOutput = gameObject.AddComponent<Animator>();
     }
 
     private void EnsureAudioSource()
@@ -361,7 +359,7 @@ public class IndividualTooth : MonoBehaviour
             sfxSource = GetComponent<AudioSource>();
             if (sfxSource == null) sfxSource = gameObject.AddComponent<AudioSource>();
             sfxSource.playOnAwake = false;
-            sfxSource.spatialBlend = 0f; // 2D 音效
+            sfxSource.spatialBlend = 0f;
             sfxSource.volume = sfxVolume;
         }
     }
@@ -373,20 +371,16 @@ public class IndividualTooth : MonoBehaviour
 
         var st = GetStateOrNull(selectedStateIndex);
 
-        // 停旧动画
         StopClip();
 
         if (st != null && st.clip != null)
         {
-            // 优先动画：清空静态图，播新 Clip
             if (spriteRenderer) spriteRenderer.sprite = null;
             PlayClip(st.clip, st.clipLoops, Mathf.Approximately(st.clipSpeed, 0f) ? 1f : st.clipSpeed);
         }
-        else
+        else if (spriteRenderer)
         {
-            // 静态 Sprite
-            if (spriteRenderer)
-                spriteRenderer.sprite = st != null ? st.sprite : null;
+            spriteRenderer.sprite = st != null ? st.sprite : null;
         }
     }
 
@@ -411,7 +405,7 @@ public class IndividualTooth : MonoBehaviour
             gameTimer.AddTime(timeBonus);
     }
 
-    // =================== Playables (single clip) ===================
+    // =================== Playables ===================
     private void PlayClip(AnimationClip clip, bool loop, float speed)
     {
         DestroyGraph();
@@ -431,7 +425,6 @@ public class IndividualTooth : MonoBehaviour
         graph.Play();
         graphValid = true;
 
-        // 编辑器非运行时采样首帧，立刻可见
         if (!Application.isPlaying) graph.Evaluate(0);
     }
 
@@ -455,7 +448,7 @@ public class IndividualTooth : MonoBehaviour
         graphValid = false;
     }
 
-    // =================== ACCESSORS（含音频触发） ===================
+    // =================== Accessors ===================
     public void SetState(int newState)
     {
         if (newState < 0 || newState >= (states?.Length ?? 0)) return;
@@ -463,11 +456,8 @@ public class IndividualTooth : MonoBehaviour
         int old = selectedStateIndex;
         selectedStateIndex = newState;
 
-        // 0 -> 非0：出现不良状态音效
         if (old == 0 && newState > 0)
             PlayOneShot(appearClip);
-
-        // 非0 -> 0：清理成功音效（如果你调用 SetState(0) 走这条）
         if (old > 0 && newState == 0)
             PlayOneShot(cleanClip);
 
@@ -482,7 +472,6 @@ public class IndividualTooth : MonoBehaviour
         return st != null ? st.name : "Unknown";
     }
 
-    // =================== Audio Helper ===================
     private void PlayOneShot(AudioClip clip)
     {
         if (clip == null) return;
